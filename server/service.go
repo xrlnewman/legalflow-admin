@@ -10,6 +10,7 @@ import (
 )
 
 var plainChineseName = regexp.MustCompile(`^[\p{Han}]{2,4}$`)
+var personalIdentifier = regexp.MustCompile(`^(?:1[3-9]\d{9}|\d{15}|\d{17}[\dXx])$`)
 
 // CareService owns validation, idempotency and lifecycle rules for LegalFlow.
 type CareService struct {
@@ -173,7 +174,7 @@ func (s *CareService) CreateMatter(ctx context.Context, input CreateMatterInput,
 	input.CaseType = strings.TrimSpace(input.CaseType)
 	input.Priority = strings.TrimSpace(input.Priority)
 	input.Deadline = strings.TrimSpace(input.Deadline)
-	if input.SubjectAlias == "" || plainChineseName.MatchString(input.SubjectAlias) {
+	if input.SubjectAlias == "" || plainChineseName.MatchString(input.SubjectAlias) || personalIdentifier.MatchString(input.SubjectAlias) {
 		return Matter{}, fmt.Errorf("%w: subjectAlias must be an alias", ErrInvalidInput)
 	}
 	if input.CaseType == "" || input.Priority == "" || input.Deadline == "" {

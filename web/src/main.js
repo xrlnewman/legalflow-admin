@@ -140,7 +140,7 @@ function mattersView() {
 function normalizeMatter(item) { return { ...item, subjectAlias: item.subjectAlias || '演示案卷', caseType: item.caseType || '待分类', priority: item.priority || '中', deadline: item.deadline || '--', assignee: item.assignee || '', status: item.status || '待委托', documents: item.documents || [], tasks: item.tasks || [], events: item.events || [] } }
 
 async function refreshMatterEvents(id) {
-  try { const response = await api.listMatterEvents(id); matterEventsById.set(id, response?.list || []); const item = matters.find((matter) => matter.id === id); if (item) item.events = response?.list || []; render() } catch { /* demo timeline remains visible */ }
+  try { const response = await api.listMatterEvents(id); matterEventsById.set(id, response?.list || []); const item = matters.find((matter) => matter.id === id); if (item) item.events = response?.list || []; render() } catch { matterEventsById.delete(id); const item = matters.find((matter) => matter.id === id); if (item) item.events = []; render() }
 }
 
 async function selectMatter(id) { selectedMatterId = id; render(); await refreshMatterEvents(id) }
@@ -182,6 +182,17 @@ async function refreshFromApi({ quiet = false } = {}) {
     followupTasks = (nextFollowups?.list || []).map(normalizeFollowup)
     matters = (nextMatters?.list || []).map(normalizeMatter)
     if (matters.length && !matters.some((item) => item.id === selectedMatterId)) selectedMatterId = matters[0].id
+    if (selectedMatterId) {
+      try {
+        const eventsResponse = await api.listMatterEvents(selectedMatterId)
+        const events = eventsResponse?.list || []
+        matterEventsById.set(selectedMatterId, events)
+        const selected = matters.find((item) => item.id === selectedMatterId)
+        if (selected) selected.events = events
+      } catch {
+        matterEventsById.delete(selectedMatterId)
+      }
+    }
     dataSource = 'API 数据'
     if (!quiet) toast = '已从 LegalFlow API 刷新数据'
   } catch (error) {

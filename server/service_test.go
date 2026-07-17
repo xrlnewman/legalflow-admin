@@ -91,6 +91,11 @@ func TestMatterCreateIsAliasOnlyAndRequiresDeadline(t *testing.T) {
 	if _, err := svc.CreateMatter(ctx, CreateMatterInput{SubjectAlias: "张三", CaseType: "合同审查", Priority: "高", Deadline: "2026-07-30"}, "matter-2"); !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("expected alias-only validation, got %v", err)
 	}
+	for _, identifier := range []string{"13800138000", "11010519491231002X"} {
+		if _, err := svc.CreateMatter(ctx, CreateMatterInput{SubjectAlias: identifier, CaseType: "合同审查", Priority: "高", Deadline: "2026-07-30"}, "matter-pii-"+identifier); !errors.Is(err, ErrInvalidInput) {
+			t.Fatalf("expected personal identifier to be rejected: %q, got %v", identifier, err)
+		}
+	}
 	matter, err := svc.CreateMatter(ctx, CreateMatterInput{SubjectAlias: "演示案卷-001", CaseType: "合同审查", Priority: "高", Deadline: "2026-07-30"}, "matter-3")
 	if err != nil || matter.Status != MatterPending || matter.SubjectAlias != "演示案卷-001" {
 		t.Fatalf("create matter = %+v, err=%v", matter, err)
