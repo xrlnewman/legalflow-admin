@@ -65,7 +65,7 @@ func TestAppointmentWriteIsIdempotent(t *testing.T) {
 func TestFollowupCompletesOnce(t *testing.T) {
 	store := NewMemoryStore()
 	svc := NewCareService(store, NoopIdempotency{})
-	followup, err := store.CreateFollowup(context.Background(), Followup{Patient: "林晓雨", Summary: "术后回访"})
+	followup, err := store.CreateFollowup(context.Background(), Followup{Patient: "案卷 C001", Summary: "证据清单与举证期限"})
 	if err != nil {
 		t.Fatal(err)
 	}

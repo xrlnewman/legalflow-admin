@@ -80,7 +80,7 @@ function appointmentAction(appointment) {
   if (appointment.status === '待立案') return `<button class="text-action" data-action="checkin" data-appointment-id="${appointment.id}">提交立案</button>`
   if (appointment.status === '已立案') return `<button class="text-action" data-action="status" data-next-status="待办理" data-appointment-id="${appointment.id}">进入办理</button>`
   if (appointment.status === '待办理') return `<button class="text-action" data-action="status" data-next-status="办理中" data-appointment-id="${appointment.id}">开始办理</button>`
-  if (appointment.status === '办理中') return `<button class="text-action" data-action="status" data-next-status="已完成" data-appointment-id="${appointment.id}">完成办理</button>`
+  if (appointment.status === '办理中') return `<button class="text-action" data-action="status" data-next-status="已结案" data-appointment-id="${appointment.id}">完成办理</button>`
   return '<button class="text-action" data-toast="该案件已完成，无需重复操作">查看详情</button>'
 }
 
@@ -91,7 +91,7 @@ function header(title) {
 function render() {
   const title = nav.find((item) => item[0] === page)?.[1] || '运营总览'
   const content = page === 'overview' ? overview() : page === 'queue' ? queue() : page === 'doctors' ? doctors() : page === 'patients' ? patients() : page === 'followups' ? followups() : mobileView()
-  document.querySelector('#app').innerHTML = `<div class="shell"><aside><div class="brand"><span>✚</span><div><strong>LegalFlow</strong><small>法务运营中心</small></div></div><div class="clinic">● 上海静安联合法务　⌄</div><p class="caption">临床运营</p><nav>${nav.map((item) => `<button class="${page === item[0] ? 'active' : ''}" data-page="${item[0]}"><i>${item[2]}</i>${item[1]}${item[0] === 'queue' ? '<em>8</em>' : ''}</button>`).join('')}</nav><div class="user"><b>许</b><span><strong>许汝林</strong><small>运营管理员</small></span></div></aside><main>${header(title)}<section class="heading"><div><p>THURSDAY, JUL 16 · LEGALFLOW</p><h1>${title} <i>✦</i></h1><label>让每一次案件，都有被照顾的下一步。</label></div><button class="primary" data-action="create-appointment">＋ 新建案件</button></section>${content}<footer>LegalFlow 法务案件与合规协同 · 免费开源 · 演示数据不含诊断与真实当事人信息</footer><div class="toast" ${toast ? '' : 'hidden'}>${toast}</div></main></div>`
+  document.querySelector('#app').innerHTML = `<div class="shell"><aside><div class="brand"><span>✚</span><div><strong>LegalFlow</strong><small>法务运营中心</small></div></div><div class="clinic">● 上海静安联合法务　⌄</div><p class="caption">案件运营</p><nav>${nav.map((item) => `<button class="${page === item[0] ? 'active' : ''}" data-page="${item[0]}"><i>${item[2]}</i>${item[1]}${item[0] === 'queue' ? '<em>8</em>' : ''}</button>`).join('')}</nav><div class="user"><b>许</b><span><strong>许汝林</strong><small>运营管理员</small></span></div></aside><main>${header(title)}<section class="heading"><div><p>THURSDAY, JUL 16 · LEGALFLOW</p><h1>${title} <i>✦</i></h1><label>让每一次案件，都有被照顾的下一步。</label></div><button class="primary" data-action="create-appointment">＋ 新建案件</button></section>${content}<footer>LegalFlow 法务案件与合规协同 · 免费开源 · 演示数据不含诊断与真实当事人信息</footer><div class="toast" ${toast ? '' : 'hidden'}>${toast}</div></main></div>`
   bind()
 }
 
@@ -112,7 +112,7 @@ function patients() {
 }
 
 function followups() {
-  return `<section class="panel full"><div class="panel-head"><div><h2>合规任务</h2><p>${dataSource === 'API 数据' ? 'API 实时合规' : '12 条待跟进任务'} · 由律师/护士确认后记录</p></div><span class="chip">全部任务　⌄</span></div><div class="follow-list">${followupTasks.map((item) => `<article><span class="task-icon ${item.status === '已完成' ? 'green' : 'coral'}">✓</span><div><strong>${item.id} · ${item.patient}</strong><p>${item.summary}</p><small>${item.dueAt} · ${dataSource === 'API 数据' ? 'API 数据' : '演示任务'}</small></div>${item.status === '已完成' ? '<button class="text-action" data-toast="该合规已经完成">查看</button>' : `<button class="text-action" data-action="complete-followup" data-followup-id="${item.id}">完成任务</button>`}</article>`).join('')}</div></section>`
+  return `<section class="panel full"><div class="panel-head"><div><h2>合规任务</h2><p>${dataSource === 'API 数据' ? 'API 实时合规' : '12 条待跟进任务'} · 由律师/运营确认后记录</p></div><span class="chip">全部任务　⌄</span></div><div class="follow-list">${followupTasks.map((item) => `<article><span class="task-icon ${item.status === '已完成' ? 'green' : 'coral'}">✓</span><div><strong>${item.id} · ${item.patient}</strong><p>${item.summary}</p><small>${item.dueAt} · ${dataSource === 'API 数据' ? 'API 数据' : '演示任务'}</small></div>${item.status === '已完成' ? '<button class="text-action" data-toast="该合规已经完成">查看</button>' : `<button class="text-action" data-action="complete-followup" data-followup-id="${item.id}">完成任务</button>`}</article>`).join('')}</div></section>`
 }
 
 function mobileView() {
@@ -185,7 +185,7 @@ async function createAppointment() {
     const created = await api.createAppointment({ patient: '移动端演示案件', patientId: 'LG-MOBILE-DEMO', department: '合同纠纷', doctor: '林律师', scheduledAt: new Date().toISOString() })
     appointments = [normalizeAppointment(created), ...appointments]
     dataSource = 'API 数据'
-    showToast('案件已创建，可继续在移动端完成签到')
+    showToast('案件已创建，可继续在移动端提交立案')
   } catch (error) {
     dataSource = '演示数据'
     showToast(`API 暂不可用，保留演示案件：${error.message}`)

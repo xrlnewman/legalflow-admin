@@ -62,14 +62,14 @@ func NewMemoryStore() *MemoryStore {
 	statuses := []string{AppointmentCompleted, AppointmentServing, AppointmentWaiting, AppointmentChecked, AppointmentPending}
 	for i := 1; i <= 20; i++ {
 		status := statuses[(i-1)%len(statuses)]
-		id := fmt.Sprintf("AP-0716-%03d", 80+i)
+		id := fmt.Sprintf("LG-0716-%03d", 80+i)
 		s.appointments[id] = Appointment{ID: id, PatientID: fmt.Sprintf("PT-%03d", i), Patient: s.patients[i-1].Name, Department: s.departments[(i-1)%len(s.departments)].Name, Doctor: s.doctors[(i-1)%len(s.doctors)].Name, ScheduledAt: fmt.Sprintf("2026-07-16T%02d:00:00+08:00", 8+(i%10)), Status: status, CreatedAt: nowUTC(), UpdatedAt: nowUTC()}
 		if status != AppointmentPending {
 			s.events[id] = append(s.events[id], AppointmentEvent{ID: id + "-EV-1", AppointmentID: id, FromStatus: AppointmentPending, ToStatus: status, Actor: "seed", CreatedAt: nowUTC()})
 		}
 	}
 	for i := 1; i <= 12; i++ {
-		id := fmt.Sprintf("FW-0716-%03d", i)
+		id := fmt.Sprintf("LG-0716-%03d", i)
 		s.followups[id] = Followup{ID: id, PatientID: fmt.Sprintf("PT-%03d", i), Patient: s.patients[i-1].Name, Summary: "证据材料与合规期限提醒", DueAt: "2026-07-17", Status: FollowupPending, CreatedAt: nowUTC(), UpdatedAt: nowUTC()}
 	}
 	s.seq.Store(1000)
@@ -359,7 +359,7 @@ func (s *SQLStore) GetAppointment(ctx context.Context, id string) (Appointment, 
 }
 func (s *SQLStore) CreateAppointment(ctx context.Context, a Appointment) (Appointment, error) {
 	if a.ID == "" {
-		a.ID = fmt.Sprintf("AP-%d", time.Now().UnixNano())
+		a.ID = fmt.Sprintf("LG-%d", time.Now().UnixNano())
 	}
 	if a.Status == "" {
 		a.Status = AppointmentPending
