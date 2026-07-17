@@ -64,3 +64,30 @@ func TestRouterRejectsWriteWithoutIdempotencyKey(t *testing.T) {
 		t.Fatalf("status = %d, body=%s", res.Code, res.Body.String())
 	}
 }
+
+func TestRouterMatterWorkflowAndSensitiveFieldRejection(t *testing.T) {
+	r := NewRouter(NewMemoryStore(), newMemoryIdempotency())
+	bad := httptest.NewRequest(http.MethodPost, "/api/v1/matters", bytes.NewBufferString(`{"subjectAlias":"演示案卷","caseType":"合同审查","priority":"高","deadline":"2026-07-30","customerName":"真实姓名"}`))
+	bad.Header.Set("Content-Type", "application/json")
+	bad.Header.Set("Idempotency-Key", "matter-bad")
+	badRes := httptest.NewRecorder(); r.ServeHTTP(badRes, bad)
+	if badRes.Code != http.StatusBadRequest { t.Fatalf("sensitive field status=%d body=%s", badRes.Code, badRes.Body.String()) }
+
+	create := httptest.NewRequest(http.MethodPost, "/api/v1/matters", bytes.NewBufferString(`{"subjectAlias":"演示案卷-HTTP","caseType":"合同审查","priority":"高","deadline":"2026-07-30"}`))
+	create.Header.Set("Content-Type", "application/json"); create.Header.Set("Idempotency-Key", "matter-http")
+	created := httptest.NewRecorder(); r.ServeHTTP(created, create)
+	if created.Code != http.StatusCreated { t.Fatalf("create status=%d body=%s", created.Code, created.Body.String()) }
+	var envelope struct { Data Matter `json:"data"` }; if err := json.Unmarshal(created.Body.Bytes(), &envelope); err != nil { t.Fatal(err) }
+	id := envelope.Data.ID
+	file := httptest.NewRequest(http.MethodPost, "/api/v1/matters/"+id+"/file", bytes.NewBufferString(`{"name":"合同.pdf","kind":"contract","checksum":"sha256:http-1"}`))
+	file.Header.Set("Content-Type", "application/json"); file.Header.Set("Idempotency-Key", "file-http")
+	fileRes := httptest.NewRecorder(); r.ServeHTTP(fileRes, file)
+	if fileRes.Code != http.StatusCreated { t.Fatalf("file status=%d body=%s", fileRes.Code, fileRes.Body.String()) }
+	assign := httptest.NewRequest(http.MethodPost, "/api/v1/matters/"+id+"/assign", bytes.NewBufferString(`{"assignee":"林律师","actor":"许汝林"}`))
+	assign.Header.Set("Content-Type", "application/json"); assign.Header.Set("Idempotency-Key", "assign-http")
+	assignRes := httptest.NewRecorder(); r.ServeHTTP(assignRes, assign)
+	if assignRes.Code != http.StatusOK { t.Fatalf("assign status=%d body=%s", assignRes.Code, assignRes.Body.String()) }
+	events := httptest.NewRequest(http.MethodGet, "/api/v1/matters/"+id+"/events", nil)
+	eventsRes := httptest.NewRecorder(); r.ServeHTTP(eventsRes, events)
+	if eventsRes.Code != http.StatusOK || !bytes.Contains(eventsRes.Body.Bytes(), []byte("归档文档")) { t.Fatalf("events status=%d body=%s", eventsRes.Code, eventsRes.Body.String()) }
+}

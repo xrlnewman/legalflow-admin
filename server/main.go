@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"os"
@@ -177,6 +178,96 @@ func NewRouter(store CareStore, idem idempotencyStore) *gin.Engine {
 		}
 		respond(c, http.StatusOK, f)
 	})
+	api.GET("/matters", func(c *gin.Context) {
+		page, pageSize := pageParams(c)
+		list, total, err := store.ListMatters(c.Request.Context(), page, pageSize, c.Query("status"), c.Query("assignee"))
+		if err != nil {
+			fail(c, err)
+			return
+		}
+		respond(c, http.StatusOK, pageData(list, total, page, pageSize))
+	})
+	api.GET("/matters/:id", func(c *gin.Context) {
+		matter, err := store.GetMatter(c.Request.Context(), c.Param("id"))
+		if err != nil {
+			fail(c, err)
+			return
+		}
+		respond(c, http.StatusOK, matter)
+	})
+	api.GET("/matters/:id/events", func(c *gin.Context) {
+		events, err := store.ListMatterEvents(c.Request.Context(), c.Param("id"))
+		if err != nil {
+			fail(c, err)
+			return
+		}
+		respond(c, http.StatusOK, gin.H{"list": events, "total": len(events)})
+	})
+	api.POST("/matters", func(c *gin.Context) {
+		var input CreateMatterInput
+		if err := bindStrictJSON(c, &input); err != nil {
+			fail(c, errors.Join(ErrInvalidInput, err))
+			return
+		}
+		matter, err := svc.CreateMatter(c.Request.Context(), input, c.GetHeader("Idempotency-Key"))
+		if err != nil {
+			fail(c, err)
+			return
+		}
+		respond(c, http.StatusCreated, matter)
+	})
+	api.POST("/matters/:id/assign", func(c *gin.Context) {
+		var input AssignMatterInput
+		if err := bindStrictJSON(c, &input); err != nil {
+			fail(c, errors.Join(ErrInvalidInput, err))
+			return
+		}
+		matter, task, err := svc.AssignMatter(c.Request.Context(), c.Param("id"), input, c.GetHeader("Idempotency-Key"))
+		if err != nil {
+			fail(c, err)
+			return
+		}
+		respond(c, http.StatusOK, gin.H{"matter": matter, "task": task})
+	})
+	api.POST("/matters/:id/status", func(c *gin.Context) {
+		var input UpdateMatterStatusInput
+		if err := bindStrictJSON(c, &input); err != nil {
+			fail(c, errors.Join(ErrInvalidInput, err))
+			return
+		}
+		matter, err := svc.UpdateMatterStatus(c.Request.Context(), c.Param("id"), input.Status, input.Actor, c.GetHeader("Idempotency-Key"))
+		if err != nil {
+			fail(c, err)
+			return
+		}
+		respond(c, http.StatusOK, matter)
+	})
+	api.POST("/matters/:id/file", func(c *gin.Context) {
+		var input AddMatterFileInput
+		if err := bindStrictJSON(c, &input); err != nil {
+			fail(c, errors.Join(ErrInvalidInput, err))
+			return
+		}
+		doc, err := svc.AddMatterDocument(c.Request.Context(), c.Param("id"), input, c.GetHeader("Idempotency-Key"))
+		if err != nil {
+			fail(c, err)
+			return
+		}
+		respond(c, http.StatusCreated, doc)
+	})
+	api.POST("/matters/:id/close", func(c *gin.Context) {
+		var input CloseMatterInput
+		if err := bindStrictJSON(c, &input); err != nil {
+			fail(c, errors.Join(ErrInvalidInput, err))
+			return
+		}
+		matter, event, err := svc.CloseMatter(c.Request.Context(), c.Param("id"), input, c.GetHeader("Idempotency-Key"))
+		if err != nil {
+			fail(c, err)
+			return
+		}
+		respond(c, http.StatusOK, gin.H{"matter": matter, "event": event})
+	})
 	return r
 }
 
@@ -205,4 +296,10 @@ func pageParams(c *gin.Context) (int, int) {
 }
 func pageData[T any](list []T, total, page, pageSize int) gin.H {
 	return gin.H{"list": list, "total": total, "page": page, "pageSize": pageSize}
+}
+
+func bindStrictJSON(c *gin.Context, target any) error {
+	decoder := json.NewDecoder(c.Request.Body)
+	decoder.DisallowUnknownFields()
+	return decoder.Decode(target)
 }

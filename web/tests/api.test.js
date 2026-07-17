@@ -84,3 +84,26 @@ test('exposes mobile lifecycle and follow-up operations through the same client'
     '/api/v1/followups/FW-1/complete',
   ])
 })
+
+test('exposes matter collaboration queue, assignment, documents and closure APIs', async () => {
+  const requests = []
+  const client = createApiClient({ fetchImpl: async (url, init) => { requests.push({ url, init }); return response({ id: 'LF-1', status: '协同中' }) } })
+  await client.listMatters({ status: '协同中', assignee: '林律师' })
+  await client.getMatter('LF-1')
+  await client.listMatterEvents('LF-1')
+  await client.createMatter({ subjectAlias: '演示案卷-1', caseType: '合同审查', priority: '高', deadline: '2026-07-30' })
+  await client.assignMatter('LF-1', { assignee: '林律师', actor: '许汝林' })
+  await client.updateMatterStatus('LF-1', '待结案', '林律师')
+  await client.addMatterFile('LF-1', { name: '证据.pdf', kind: 'evidence', checksum: 'sha256:1' })
+  await client.closeMatter('LF-1', { result: '材料已归档', actor: '林律师' })
+  assert.deepEqual(requests.map(({ url }) => url), [
+    '/api/v1/matters?status=%E5%8D%8F%E5%90%8C%E4%B8%AD&assignee=%E6%9E%97%E5%BE%8B%E5%B8%88',
+    '/api/v1/matters/LF-1',
+    '/api/v1/matters/LF-1/events',
+    '/api/v1/matters',
+    '/api/v1/matters/LF-1/assign',
+    '/api/v1/matters/LF-1/status',
+    '/api/v1/matters/LF-1/file',
+    '/api/v1/matters/LF-1/close',
+  ])
+})

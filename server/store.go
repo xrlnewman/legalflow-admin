@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -36,6 +37,14 @@ type CareStore interface {
 	ListFollowups(context.Context, int, int, string) ([]Followup, int, error)
 	CreateFollowup(context.Context, Followup) (Followup, error)
 	CompleteFollowup(context.Context, string) (Followup, error)
+	ListMatters(context.Context, int, int, string, string) ([]Matter, int, error)
+	GetMatter(context.Context, string) (Matter, error)
+	CreateMatter(context.Context, Matter) (Matter, error)
+	AssignMatter(context.Context, string, string, string) (Matter, MatterTask, MatterEvent, error)
+	UpdateMatterStatus(context.Context, string, string, string) (Matter, MatterEvent, error)
+	AddMatterDocument(context.Context, string, MatterDocument, string) (MatterDocument, MatterEvent, error)
+	CloseMatter(context.Context, string, string, string) (Matter, MatterEvent, error)
+	ListMatterEvents(context.Context, string) ([]MatterEvent, error)
 }
 
 // MemoryStore is deterministic and dependency-free for unit tests and demos.
@@ -48,11 +57,16 @@ type MemoryStore struct {
 	departments  []Department
 	doctors      []Doctor
 	patients     []Patient
+	matters      map[string]Matter
+	matterEvents map[string][]MatterEvent
+	matterTasks  map[string]MatterTask
+	matterDocs   map[string]MatterDocument
 }
 
 func NewMemoryStore() *MemoryStore {
 	s := &MemoryStore{
 		appointments: map[string]Appointment{}, events: map[string][]AppointmentEvent{}, followups: map[string]Followup{},
+		matters: map[string]Matter{}, matterEvents: map[string][]MatterEvent{}, matterTasks: map[string]MatterTask{}, matterDocs: map[string]MatterDocument{},
 		departments: []Department{{ID: "practice-contract", Name: "合同纠纷"}, {ID: "practice-labor", Name: "劳动争议"}, {ID: "practice-ip", Name: "知识产权"}, {ID: "practice-corp", Name: "公司治理"}},
 		doctors:     []Doctor{{ID: "lawyer-01", Name: "林律师", Department: "合同纠纷", Status: "办理中", TodayCount: 18}, {ID: "lawyer-02", Name: "沈律师", Department: "劳动争议", Status: "办理中", TodayCount: 16}, {ID: "lawyer-03", Name: "赵律师", Department: "知识产权", Status: "办理中", TodayCount: 12}, {ID: "lawyer-04", Name: "周律师", Department: "公司治理", Status: "休息中", TodayCount: 10}, {ID: "lawyer-05", Name: "陈律师", Department: "合同纠纷", Status: "办理中", TodayCount: 14}, {ID: "lawyer-06", Name: "王律师", Department: "劳动争议", Status: "办理中", TodayCount: 16}},
 	}
@@ -73,7 +87,42 @@ func NewMemoryStore() *MemoryStore {
 		s.followups[id] = Followup{ID: id, PatientID: fmt.Sprintf("PT-%03d", i), Patient: s.patients[i-1].Name, Summary: "证据材料与合规期限提醒", DueAt: "2026-07-17", Status: FollowupPending, CreatedAt: nowUTC(), UpdatedAt: nowUTC()}
 	}
 	s.seq.Store(1000)
+	seedMatters(s)
 	return s
+}
+
+func seedMatters(s *MemoryStore) {
+	statuses := []string{MatterPending, MatterFiled, MatterCollaborating, MatterPendingClose, MatterClosed}
+	for i := 1; i <= 18; i++ {
+		id := fmt.Sprintf("LF-0720-%03d", i)
+		status := statuses[(i-1)%len(statuses)]
+		assignee := ""
+		if status != MatterPending {
+			assignee = []string{"林律师", "沈律师", "赵律师"}[(i-1)%3]
+		}
+		created := nowUTC()
+		m := Matter{ID: id, SubjectAlias: fmt.Sprintf("演示案卷-%03d", i), CaseType: []string{"合同审查", "劳动争议", "知识产权"}[(i-1)%3], Priority: []string{"高", "中", "低"}[(i-1)%3], Deadline: fmt.Sprintf("2026-07-%02d", 20+(i%8)), Assignee: assignee, Status: status, CreatedAt: created, UpdatedAt: created}
+		if status == MatterClosed {
+			m.ClosureResult = "材料已归档，待客户确认"
+		}
+		s.matters[id] = m
+		if assignee != "" {
+			task := MatterTask{ID: id + "-TASK-1", MatterID: id, Title: "核对案件材料与下一个节点", Assignee: assignee, Status: MatterTaskPending, CreatedAt: created, UpdatedAt: created}
+			s.matterTasks[id] = task
+		}
+		if status != MatterPending {
+			from := MatterPending
+			steps := []string{MatterFiled, MatterCollaborating, MatterPendingClose, MatterClosed}
+			for _, to := range steps {
+				if status == from {
+					break
+				}
+				e := MatterEvent{ID: id + fmt.Sprintf("-EV-%d", len(s.matterEvents[id])+1), MatterID: id, Action: "推进状态", FromStatus: from, ToStatus: to, Actor: "演示运营", CreatedAt: nowUTC()}
+				s.matterEvents[id] = append(s.matterEvents[id], e)
+				from = to
+			}
+		}
+	}
 }
 
 func (s *MemoryStore) next(prefix string) string { return fmt.Sprintf("%s-%d", prefix, s.seq.Add(1)) }
@@ -216,6 +265,157 @@ func (s *MemoryStore) CompleteFollowup(_ context.Context, id string) (Followup, 
 	f.UpdatedAt = nowUTC()
 	s.followups[id] = f
 	return f, nil
+}
+
+func (s *MemoryStore) ListMatters(_ context.Context, page, pageSize int, status, assignee string) ([]Matter, int, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	all := make([]Matter, 0, len(s.matters))
+	for _, matter := range s.matters {
+		if status != "" && matter.Status != status {
+			continue
+		}
+		if assignee != "" && matter.Assignee != assignee {
+			continue
+		}
+		all = append(all, matter)
+	}
+	sort.SliceStable(all, func(i, j int) bool { return all[i].Deadline < all[j].Deadline })
+	return paginate(all, page, pageSize)
+}
+
+func (s *MemoryStore) GetMatter(_ context.Context, id string) (Matter, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	matter, ok := s.matters[id]
+	if !ok {
+		return Matter{}, ErrNotFound
+	}
+	matter.Tasks = nil
+	if task, ok := s.matterTasks[id]; ok {
+		matter.Tasks = []MatterTask{task}
+	}
+	matter.Documents = make([]MatterDocument, 0)
+	for _, doc := range s.matterDocs {
+		if doc.MatterID == id {
+			matter.Documents = append(matter.Documents, doc)
+		}
+	}
+	matter.Events = append([]MatterEvent(nil), s.matterEvents[id]...)
+	sort.SliceStable(matter.Documents, func(i, j int) bool { return matter.Documents[i].CreatedAt < matter.Documents[j].CreatedAt })
+	return matter, nil
+}
+
+func (s *MemoryStore) CreateMatter(_ context.Context, matter Matter) (Matter, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if matter.ID == "" {
+		matter.ID = s.next("MT")
+	}
+	if matter.Status == "" {
+		matter.Status = MatterPending
+	}
+	if matter.CreatedAt == "" {
+		matter.CreatedAt = nowUTC()
+	}
+	matter.UpdatedAt = matter.CreatedAt
+	s.matters[matter.ID] = matter
+	s.matterEvents[matter.ID] = append(s.matterEvents[matter.ID], MatterEvent{ID: s.next("ME"), MatterID: matter.ID, Action: "创建案件", ToStatus: matter.Status, Actor: "系统", CreatedAt: nowUTC()})
+	return matter, nil
+}
+
+func (s *MemoryStore) AssignMatter(_ context.Context, id, assignee, actor string) (Matter, MatterTask, MatterEvent, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	matter, ok := s.matters[id]
+	if !ok {
+		return Matter{}, MatterTask{}, MatterEvent{}, ErrNotFound
+	}
+	if matter.Status == MatterClosed {
+		return Matter{}, MatterTask{}, MatterEvent{}, ErrInvalidTransition
+	}
+	oldStatus := matter.Status
+	if matter.Status == MatterPending {
+		matter.Status = MatterFiled
+	}
+	matter.Assignee = assignee
+	matter.UpdatedAt = nowUTC()
+	s.matters[id] = matter
+	task := MatterTask{ID: s.next("MTASK"), MatterID: id, Title: "案件协同负责人", Assignee: assignee, Status: MatterTaskPending, CreatedAt: nowUTC(), UpdatedAt: nowUTC()}
+	s.matterTasks[id] = task
+	event := MatterEvent{ID: s.next("ME"), MatterID: id, Action: "分配负责人", FromStatus: oldStatus, ToStatus: matter.Status, Actor: actor, Detail: assignee, CreatedAt: nowUTC()}
+	s.matterEvents[id] = append(s.matterEvents[id], event)
+	return matter, task, event, nil
+}
+
+func (s *MemoryStore) UpdateMatterStatus(_ context.Context, id, status, actor string) (Matter, MatterEvent, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	matter, ok := s.matters[id]
+	if !ok {
+		return Matter{}, MatterEvent{}, ErrNotFound
+	}
+	if !matterTransitions[matter.Status][status] {
+		return Matter{}, MatterEvent{}, ErrInvalidTransition
+	}
+	old := matter.Status
+	matter.Status = status
+	matter.UpdatedAt = nowUTC()
+	s.matters[id] = matter
+	event := MatterEvent{ID: s.next("ME"), MatterID: id, Action: "推进状态", FromStatus: old, ToStatus: status, Actor: actor, CreatedAt: nowUTC()}
+	s.matterEvents[id] = append(s.matterEvents[id], event)
+	return matter, event, nil
+}
+
+func (s *MemoryStore) AddMatterDocument(_ context.Context, id string, document MatterDocument, actor string) (MatterDocument, MatterEvent, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.matters[id]; !ok {
+		return MatterDocument{}, MatterEvent{}, ErrNotFound
+	}
+	for _, existing := range s.matterDocs {
+		if existing.MatterID == id && existing.Checksum == document.Checksum {
+			return existing, MatterEvent{}, nil
+		}
+	}
+	document.ID = s.next("DOC")
+	document.MatterID = id
+	document.CreatedAt = nowUTC()
+	document.CreatedBy = actor
+	s.matterDocs[document.ID] = document
+	event := MatterEvent{ID: s.next("ME"), MatterID: id, Action: "归档文档", Actor: actor, Detail: document.Name, CreatedAt: nowUTC()}
+	s.matterEvents[id] = append(s.matterEvents[id], event)
+	return document, event, nil
+}
+
+func (s *MemoryStore) CloseMatter(_ context.Context, id, result, actor string) (Matter, MatterEvent, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	matter, ok := s.matters[id]
+	if !ok {
+		return Matter{}, MatterEvent{}, ErrNotFound
+	}
+	if matter.Status != MatterPendingClose {
+		return Matter{}, MatterEvent{}, ErrInvalidTransition
+	}
+	matter.Status = MatterClosed
+	matter.ClosureResult = result
+	matter.UpdatedAt = nowUTC()
+	s.matters[id] = matter
+	event := MatterEvent{ID: s.next("ME"), MatterID: id, Action: "提交结案", FromStatus: MatterPendingClose, ToStatus: MatterClosed, Actor: actor, Detail: result, CreatedAt: nowUTC()}
+	s.matterEvents[id] = append(s.matterEvents[id], event)
+	return matter, event, nil
+}
+
+func (s *MemoryStore) ListMatterEvents(_ context.Context, id string) ([]MatterEvent, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if _, ok := s.matters[id]; !ok {
+		return nil, ErrNotFound
+	}
+	events := append([]MatterEvent(nil), s.matterEvents[id]...)
+	sort.SliceStable(events, func(i, j int) bool { return events[i].CreatedAt < events[j].CreatedAt })
+	return events, nil
 }
 
 func paginate[T any](all []T, page, pageSize int) ([]T, int, error) {
@@ -481,6 +681,280 @@ func (s *SQLStore) CompleteFollowup(ctx context.Context, id string) (Followup, e
 	f.UpdatedAt = nowUTC()
 	_, err = s.db.ExecContext(ctx, `UPDATE followups SET status=?,updated_at=? WHERE id=?`, f.Status, f.UpdatedAt, id)
 	return f, err
+}
+
+func (s *SQLStore) ListMatters(ctx context.Context, page, pageSize int, status, assignee string) ([]Matter, int, error) {
+	args := []any{}
+	where := []string{}
+	if status != "" {
+		where = append(where, "status=?")
+		args = append(args, status)
+	}
+	if assignee != "" {
+		where = append(where, "assignee=?")
+		args = append(args, assignee)
+	}
+	condition := ""
+	if len(where) > 0 {
+		condition = " WHERE " + strings.Join(where, " AND ")
+	}
+	var total int
+	if err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM matters"+condition, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	page, pageSize = normalizePage(page, pageSize)
+	queryArgs := append([]any(nil), args...)
+	queryArgs = append(queryArgs, pageSize, (page-1)*pageSize)
+	rows, err := s.db.QueryContext(ctx, "SELECT id,subject_alias,case_type,priority,deadline,assignee,status,closure_result,created_at,updated_at FROM matters"+condition+" ORDER BY deadline ASC LIMIT ? OFFSET ?", queryArgs...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	out := []Matter{}
+	for rows.Next() {
+		var m Matter
+		if err := rows.Scan(&m.ID, &m.SubjectAlias, &m.CaseType, &m.Priority, &m.Deadline, &m.Assignee, &m.Status, &m.ClosureResult, &m.CreatedAt, &m.UpdatedAt); err != nil {
+			return nil, 0, err
+		}
+		out = append(out, m)
+	}
+	return out, total, rows.Err()
+}
+
+func (s *SQLStore) GetMatter(ctx context.Context, id string) (Matter, error) {
+	var m Matter
+	err := s.db.QueryRowContext(ctx, `SELECT id,subject_alias,case_type,priority,deadline,assignee,status,closure_result,created_at,updated_at FROM matters WHERE id=?`, id).Scan(&m.ID, &m.SubjectAlias, &m.CaseType, &m.Priority, &m.Deadline, &m.Assignee, &m.Status, &m.ClosureResult, &m.CreatedAt, &m.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Matter{}, ErrNotFound
+	}
+	if err != nil {
+		return Matter{}, err
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT id,matter_id,title,assignee,status,created_at,updated_at FROM matter_tasks WHERE matter_id=? ORDER BY created_at DESC`, id)
+	if err != nil {
+		return Matter{}, err
+	}
+	for rows.Next() {
+		var task MatterTask
+		if err := rows.Scan(&task.ID, &task.MatterID, &task.Title, &task.Assignee, &task.Status, &task.CreatedAt, &task.UpdatedAt); err != nil {
+			rows.Close()
+			return Matter{}, err
+		}
+		m.Tasks = append(m.Tasks, task)
+	}
+	if err := rows.Close(); err != nil {
+		return Matter{}, err
+	}
+	rows, err = s.db.QueryContext(ctx, `SELECT id,matter_id,name,kind,checksum,created_at,created_by FROM matter_documents WHERE matter_id=? ORDER BY created_at ASC`, id)
+	if err != nil {
+		return Matter{}, err
+	}
+	for rows.Next() {
+		var doc MatterDocument
+		if err := rows.Scan(&doc.ID, &doc.MatterID, &doc.Name, &doc.Kind, &doc.Checksum, &doc.CreatedAt, &doc.CreatedBy); err != nil {
+			rows.Close()
+			return Matter{}, err
+		}
+		m.Documents = append(m.Documents, doc)
+	}
+	if err := rows.Close(); err != nil {
+		return Matter{}, err
+	}
+	m.Events, err = s.ListMatterEvents(ctx, id)
+	if err != nil {
+		return Matter{}, err
+	}
+	return m, nil
+}
+
+func (s *SQLStore) CreateMatter(ctx context.Context, m Matter) (Matter, error) {
+	if m.ID == "" {
+		m.ID = fmt.Sprintf("MT-%d", time.Now().UnixNano())
+	}
+	if m.Status == "" {
+		m.Status = MatterPending
+	}
+	if m.CreatedAt == "" {
+		m.CreatedAt = nowUTC()
+	}
+	m.UpdatedAt = m.CreatedAt
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Matter{}, err
+	}
+	defer tx.Rollback()
+	if _, err = tx.ExecContext(ctx, `INSERT INTO matters (id,subject_alias,case_type,priority,deadline,assignee,status,closure_result,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)`, m.ID, m.SubjectAlias, m.CaseType, m.Priority, m.Deadline, m.Assignee, m.Status, m.ClosureResult, m.CreatedAt, m.UpdatedAt); err != nil {
+		return Matter{}, err
+	}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO matter_events (id,matter_id,action,from_status,to_status,actor,detail,created_at) VALUES (?,?,?,?,?,?,?,?)`, fmt.Sprintf("ME-%d", time.Now().UnixNano()), m.ID, "创建案件", "", m.Status, "系统", "", nowUTC()); err != nil {
+		return Matter{}, err
+	}
+	if err = tx.Commit(); err != nil {
+		return Matter{}, err
+	}
+	return m, nil
+}
+
+func (s *SQLStore) AssignMatter(ctx context.Context, id, assignee, actor string) (Matter, MatterTask, MatterEvent, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Matter{}, MatterTask{}, MatterEvent{}, err
+	}
+	defer tx.Rollback()
+	var m Matter
+	if err = tx.QueryRowContext(ctx, `SELECT id,subject_alias,case_type,priority,deadline,assignee,status,closure_result,created_at,updated_at FROM matters WHERE id=? FOR UPDATE`, id).Scan(&m.ID, &m.SubjectAlias, &m.CaseType, &m.Priority, &m.Deadline, &m.Assignee, &m.Status, &m.ClosureResult, &m.CreatedAt, &m.UpdatedAt); errors.Is(err, sql.ErrNoRows) {
+		return Matter{}, MatterTask{}, MatterEvent{}, ErrNotFound
+	} else if err != nil {
+		return Matter{}, MatterTask{}, MatterEvent{}, err
+	}
+	if m.Status == MatterClosed {
+		return Matter{}, MatterTask{}, MatterEvent{}, ErrInvalidTransition
+	}
+	old := m.Status
+	if m.Status == MatterPending {
+		m.Status = MatterFiled
+	}
+	m.Assignee = assignee
+	m.UpdatedAt = nowUTC()
+	if _, err = tx.ExecContext(ctx, `UPDATE matters SET assignee=?,status=?,updated_at=? WHERE id=?`, m.Assignee, m.Status, m.UpdatedAt, id); err != nil {
+		return Matter{}, MatterTask{}, MatterEvent{}, err
+	}
+	task := MatterTask{ID: fmt.Sprintf("MTASK-%d", time.Now().UnixNano()), MatterID: id, Title: "案件协同负责人", Assignee: assignee, Status: MatterTaskPending, CreatedAt: nowUTC(), UpdatedAt: nowUTC()}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO matter_tasks (id,matter_id,title,assignee,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE assignee=VALUES(assignee),updated_at=VALUES(updated_at)`, task.ID, id, task.Title, task.Assignee, task.Status, task.CreatedAt, task.UpdatedAt); err != nil {
+		return Matter{}, MatterTask{}, MatterEvent{}, err
+	}
+	e := MatterEvent{ID: fmt.Sprintf("ME-%d", time.Now().UnixNano()), MatterID: id, Action: "分配负责人", FromStatus: old, ToStatus: m.Status, Actor: actor, Detail: assignee, CreatedAt: nowUTC()}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO matter_events (id,matter_id,action,from_status,to_status,actor,detail,created_at) VALUES (?,?,?,?,?,?,?,?)`, e.ID, id, e.Action, e.FromStatus, e.ToStatus, e.Actor, e.Detail, e.CreatedAt); err != nil {
+		return Matter{}, MatterTask{}, MatterEvent{}, err
+	}
+	if err = tx.Commit(); err != nil {
+		return Matter{}, MatterTask{}, MatterEvent{}, err
+	}
+	return m, task, e, nil
+}
+
+func (s *SQLStore) UpdateMatterStatus(ctx context.Context, id, status, actor string) (Matter, MatterEvent, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Matter{}, MatterEvent{}, err
+	}
+	defer tx.Rollback()
+	var m Matter
+	if err = tx.QueryRowContext(ctx, `SELECT id,subject_alias,case_type,priority,deadline,assignee,status,closure_result,created_at,updated_at FROM matters WHERE id=? FOR UPDATE`, id).Scan(&m.ID, &m.SubjectAlias, &m.CaseType, &m.Priority, &m.Deadline, &m.Assignee, &m.Status, &m.ClosureResult, &m.CreatedAt, &m.UpdatedAt); errors.Is(err, sql.ErrNoRows) {
+		return Matter{}, MatterEvent{}, ErrNotFound
+	} else if err != nil {
+		return Matter{}, MatterEvent{}, err
+	}
+	if !matterTransitions[m.Status][status] {
+		return Matter{}, MatterEvent{}, ErrInvalidTransition
+	}
+	old := m.Status
+	m.Status = status
+	m.UpdatedAt = nowUTC()
+	if _, err = tx.ExecContext(ctx, `UPDATE matters SET status=?,updated_at=? WHERE id=?`, status, m.UpdatedAt, id); err != nil {
+		return Matter{}, MatterEvent{}, err
+	}
+	e := MatterEvent{ID: fmt.Sprintf("ME-%d", time.Now().UnixNano()), MatterID: id, Action: "推进状态", FromStatus: old, ToStatus: status, Actor: actor, CreatedAt: nowUTC()}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO matter_events (id,matter_id,action,from_status,to_status,actor,detail,created_at) VALUES (?,?,?,?,?,?,?,?)`, e.ID, id, e.Action, e.FromStatus, e.ToStatus, e.Actor, "", e.CreatedAt); err != nil {
+		return Matter{}, MatterEvent{}, err
+	}
+	if err = tx.Commit(); err != nil {
+		return Matter{}, MatterEvent{}, err
+	}
+	return m, e, nil
+}
+
+func (s *SQLStore) AddMatterDocument(ctx context.Context, id string, doc MatterDocument, actor string) (MatterDocument, MatterEvent, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return MatterDocument{}, MatterEvent{}, err
+	}
+	defer tx.Rollback()
+	var exists string
+	err = tx.QueryRowContext(ctx, `SELECT id FROM matters WHERE id=? FOR UPDATE`, id).Scan(&exists)
+	if errors.Is(err, sql.ErrNoRows) {
+		return MatterDocument{}, MatterEvent{}, ErrNotFound
+	} else if err != nil {
+		return MatterDocument{}, MatterEvent{}, err
+	}
+	var existing MatterDocument
+	err = tx.QueryRowContext(ctx, `SELECT id,matter_id,name,kind,checksum,created_at,created_by FROM matter_documents WHERE matter_id=? AND checksum=?`, id, doc.Checksum).Scan(&existing.ID, &existing.MatterID, &existing.Name, &existing.Kind, &existing.Checksum, &existing.CreatedAt, &existing.CreatedBy)
+	if err == nil {
+		_ = tx.Rollback()
+		return existing, MatterEvent{}, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return MatterDocument{}, MatterEvent{}, err
+	}
+	doc.ID = fmt.Sprintf("DOC-%d", time.Now().UnixNano())
+	doc.MatterID = id
+	doc.CreatedAt = nowUTC()
+	doc.CreatedBy = actor
+	if _, err = tx.ExecContext(ctx, `INSERT INTO matter_documents (id,matter_id,name,kind,checksum,created_at,created_by) VALUES (?,?,?,?,?,?,?)`, doc.ID, id, doc.Name, doc.Kind, doc.Checksum, doc.CreatedAt, doc.CreatedBy); err != nil {
+		return MatterDocument{}, MatterEvent{}, err
+	}
+	e := MatterEvent{ID: fmt.Sprintf("ME-%d", time.Now().UnixNano()), MatterID: id, Action: "归档文档", Actor: actor, Detail: doc.Name, CreatedAt: nowUTC()}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO matter_events (id,matter_id,action,from_status,to_status,actor,detail,created_at) VALUES (?,?,?,?,?,?,?,?)`, e.ID, id, e.Action, "", "", e.Actor, e.Detail, e.CreatedAt); err != nil {
+		return MatterDocument{}, MatterEvent{}, err
+	}
+	if err = tx.Commit(); err != nil {
+		return MatterDocument{}, MatterEvent{}, err
+	}
+	return doc, e, nil
+}
+
+func (s *SQLStore) CloseMatter(ctx context.Context, id, result, actor string) (Matter, MatterEvent, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Matter{}, MatterEvent{}, err
+	}
+	defer tx.Rollback()
+	var m Matter
+	if err = tx.QueryRowContext(ctx, `SELECT id,subject_alias,case_type,priority,deadline,assignee,status,closure_result,created_at,updated_at FROM matters WHERE id=? FOR UPDATE`, id).Scan(&m.ID, &m.SubjectAlias, &m.CaseType, &m.Priority, &m.Deadline, &m.Assignee, &m.Status, &m.ClosureResult, &m.CreatedAt, &m.UpdatedAt); errors.Is(err, sql.ErrNoRows) {
+		return Matter{}, MatterEvent{}, ErrNotFound
+	} else if err != nil {
+		return Matter{}, MatterEvent{}, err
+	}
+	if m.Status != MatterPendingClose {
+		return Matter{}, MatterEvent{}, ErrInvalidTransition
+	}
+	m.Status = MatterClosed
+	m.ClosureResult = result
+	m.UpdatedAt = nowUTC()
+	if _, err = tx.ExecContext(ctx, `UPDATE matters SET status=?,closure_result=?,updated_at=? WHERE id=?`, m.Status, m.ClosureResult, m.UpdatedAt, id); err != nil {
+		return Matter{}, MatterEvent{}, err
+	}
+	e := MatterEvent{ID: fmt.Sprintf("ME-%d", time.Now().UnixNano()), MatterID: id, Action: "提交结案", FromStatus: MatterPendingClose, ToStatus: MatterClosed, Actor: actor, Detail: result, CreatedAt: nowUTC()}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO matter_events (id,matter_id,action,from_status,to_status,actor,detail,created_at) VALUES (?,?,?,?,?,?,?,?)`, e.ID, id, e.Action, e.FromStatus, e.ToStatus, e.Actor, e.Detail, e.CreatedAt); err != nil {
+		return Matter{}, MatterEvent{}, err
+	}
+	if err = tx.Commit(); err != nil {
+		return Matter{}, MatterEvent{}, err
+	}
+	return m, e, nil
+}
+
+func (s *SQLStore) ListMatterEvents(ctx context.Context, id string) ([]MatterEvent, error) {
+	var exists string
+	if err := s.db.QueryRowContext(ctx, `SELECT id FROM matters WHERE id=?`, id).Scan(&exists); errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	} else if err != nil {
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT id,matter_id,action,from_status,to_status,actor,detail,created_at FROM matter_events WHERE matter_id=? ORDER BY created_at ASC,id ASC`, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []MatterEvent{}
+	for rows.Next() {
+		var e MatterEvent
+		if err := rows.Scan(&e.ID, &e.MatterID, &e.Action, &e.FromStatus, &e.ToStatus, &e.Actor, &e.Detail, &e.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
 }
 func normalizePage(page, pageSize int) (int, int) {
 	if page < 1 {

@@ -50,6 +50,63 @@ CREATE TABLE IF NOT EXISTS followups (
   INDEX idx_followups_status_due (status, due_at)
 );
 
+CREATE TABLE IF NOT EXISTS matters (
+  id VARCHAR(64) PRIMARY KEY,
+  subject_alias VARCHAR(128) NOT NULL,
+  case_type VARCHAR(64) NOT NULL,
+  priority VARCHAR(16) NOT NULL,
+  deadline VARCHAR(32) NOT NULL,
+  assignee VARCHAR(64) NOT NULL DEFAULT '',
+  status VARCHAR(32) NOT NULL,
+  closure_result VARCHAR(255) NOT NULL DEFAULT '',
+  created_at VARCHAR(64) NOT NULL,
+  updated_at VARCHAR(64) NOT NULL,
+  INDEX idx_matters_status_deadline (status, deadline),
+  INDEX idx_matters_assignee_deadline (assignee, deadline)
+);
+CREATE TABLE IF NOT EXISTS matter_tasks (
+  id VARCHAR(64) PRIMARY KEY,
+  matter_id VARCHAR(64) NOT NULL,
+  title VARCHAR(128) NOT NULL,
+  assignee VARCHAR(64) NOT NULL,
+  status VARCHAR(32) NOT NULL,
+  created_at VARCHAR(64) NOT NULL,
+  updated_at VARCHAR(64) NOT NULL,
+  UNIQUE KEY uq_matter_task (matter_id),
+  CONSTRAINT fk_matter_tasks_matter FOREIGN KEY (matter_id) REFERENCES matters(id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS matter_documents (
+  id VARCHAR(64) PRIMARY KEY,
+  matter_id VARCHAR(64) NOT NULL,
+  name VARCHAR(255) NOT NULL,
+  kind VARCHAR(64) NOT NULL,
+  checksum VARCHAR(255) NOT NULL,
+  created_at VARCHAR(64) NOT NULL,
+  created_by VARCHAR(64) NOT NULL,
+  UNIQUE KEY uq_matter_document_checksum (matter_id, checksum),
+  INDEX idx_matter_documents_created (matter_id, created_at),
+  CONSTRAINT fk_matter_documents_matter FOREIGN KEY (matter_id) REFERENCES matters(id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS matter_events (
+  id VARCHAR(64) PRIMARY KEY,
+  matter_id VARCHAR(64) NOT NULL,
+  action VARCHAR(64) NOT NULL,
+  from_status VARCHAR(32) NOT NULL DEFAULT '',
+  to_status VARCHAR(32) NOT NULL DEFAULT '',
+  actor VARCHAR(64) NOT NULL,
+  detail VARCHAR(255) NOT NULL DEFAULT '',
+  created_at VARCHAR(64) NOT NULL,
+  INDEX idx_matter_events_timeline (matter_id, created_at, id),
+  CONSTRAINT fk_matter_events_matter FOREIGN KEY (matter_id) REFERENCES matters(id) ON DELETE CASCADE
+);
+
+INSERT IGNORE INTO matters (id,subject_alias,case_type,priority,deadline,assignee,status,closure_result,created_at,updated_at) VALUES
+ ('LF-0720-001','演示案卷-001','合同审查','高','2026-07-21','林律师','已立案','','2026-07-16T01:00:00Z','2026-07-16T01:00:00Z'),
+ ('LF-0720-002','演示案卷-002','劳动争议','中','2026-07-22','沈律师','协同中','','2026-07-16T01:00:00Z','2026-07-16T02:00:00Z'),
+ ('LF-0720-003','演示案卷-003','知识产权','高','2026-07-23','赵律师','待结案','','2026-07-16T01:00:00Z','2026-07-16T03:00:00Z'),
+ ('LF-0720-004','演示案卷-004','合同审查','低','2026-07-24','','待委托','','2026-07-16T01:00:00Z','2026-07-16T01:00:00Z'),
+ ('LF-0720-005','演示案卷-005','公司治理','中','2026-07-25','林律师','已结案','材料已归档，待客户确认','2026-07-16T01:00:00Z','2026-07-16T04:00:00Z');
+
 INSERT IGNORE INTO departments (id,name) VALUES
  ('practice-contract','合同纠纷'),('practice-labor','劳动争议'),('practice-ip','知识产权'),('practice-corp','公司治理');
 INSERT IGNORE INTO doctors (id,name,department,status,today_count) VALUES

@@ -66,6 +66,14 @@ export function createApiClient({ baseUrl, fetchImpl = globalThis.fetch } = {}) 
     listFollowups: (query) => request(withQuery('/followups', query)),
     createFollowup: (input, idempotencyKey) => request('/followups', { method: 'POST', body: input, idempotencyKey }),
     completeFollowup: (id, idempotencyKey) => request(`/followups/${encodeURIComponent(id)}/complete`, { method: 'POST', idempotencyKey }),
+    listMatters: (query) => request(withQuery('/matters', query)),
+    getMatter: (id) => request(`/matters/${encodeURIComponent(id)}`),
+    listMatterEvents: (id) => request(`/matters/${encodeURIComponent(id)}/events`),
+    createMatter: (input, idempotencyKey) => request('/matters', { method: 'POST', body: input, idempotencyKey }),
+    assignMatter: (id, input, idempotencyKey) => request(`/matters/${encodeURIComponent(id)}/assign`, { method: 'POST', body: input, idempotencyKey }),
+    updateMatterStatus: (id, status, actor, idempotencyKey) => request(`/matters/${encodeURIComponent(id)}/status`, { method: 'POST', body: { status, ...(actor ? { actor } : {}) }, idempotencyKey }),
+    addMatterFile: (id, input, idempotencyKey) => request(`/matters/${encodeURIComponent(id)}/file`, { method: 'POST', body: input, idempotencyKey }),
+    closeMatter: (id, input, idempotencyKey) => request(`/matters/${encodeURIComponent(id)}/close`, { method: 'POST', body: input, idempotencyKey }),
   }
 }
 
