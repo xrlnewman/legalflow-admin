@@ -93,12 +93,12 @@ type Dashboard struct {
 }
 
 const (
-	AppointmentPending   = "待签到"
-	AppointmentChecked   = "已签到"
-	AppointmentWaiting   = "候诊中"
+	AppointmentPending   = "待立案"
+	AppointmentChecked   = "已立案"
+	AppointmentWaiting   = "待办理"
 	AppointmentServing   = "办理中"
-	AppointmentCompleted = "已完成"
-	AppointmentCancelled = "已取消"
+	AppointmentCompleted = "已结案"
+	AppointmentCancelled = "已撤案"
 	FollowupPending      = "待完成"
 	FollowupCompleted    = "已完成"
 )

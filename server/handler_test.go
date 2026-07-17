@@ -10,7 +10,7 @@ import (
 
 func TestRouterAppointmentLifecycleAndEnvelope(t *testing.T) {
 	r := NewRouter(NewMemoryStore(), newMemoryIdempotency())
-	body := bytes.NewBufferString(`{"patient":"测试用户","department":"全科门诊","doctor":"林律师"}`)
+	body := bytes.NewBufferString(`{"patient":"案卷 C001","department":"合同纠纷","doctor":"林律师"}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/appointments", body)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Idempotency-Key", "handler-create")
@@ -30,7 +30,7 @@ func TestRouterAppointmentLifecycleAndEnvelope(t *testing.T) {
 	if envelope.Code != 0 || envelope.TraceID == "" || envelope.Data.ID == "" {
 		t.Fatalf("bad envelope: %+v", envelope)
 	}
-	statusReq := httptest.NewRequest(http.MethodPost, "/api/v1/appointments/"+envelope.Data.ID+"/status", bytes.NewBufferString(`{"status":"已签到"}`))
+	statusReq := httptest.NewRequest(http.MethodPost, "/api/v1/appointments/"+envelope.Data.ID+"/status", bytes.NewBufferString(`{"status":"已立案"}`))
 	statusReq.Header.Set("Content-Type", "application/json")
 	statusReq.Header.Set("Idempotency-Key", "handler-checkin")
 	statusRes := httptest.NewRecorder()
@@ -38,7 +38,7 @@ func TestRouterAppointmentLifecycleAndEnvelope(t *testing.T) {
 	if statusRes.Code != http.StatusOK {
 		t.Fatalf("checkin status = %d, body=%s", statusRes.Code, statusRes.Body.String())
 	}
-	illegalReq := httptest.NewRequest(http.MethodPost, "/api/v1/appointments/"+envelope.Data.ID+"/status", bytes.NewBufferString(`{"status":"已完成"}`))
+	illegalReq := httptest.NewRequest(http.MethodPost, "/api/v1/appointments/"+envelope.Data.ID+"/status", bytes.NewBufferString(`{"status":"已结案"}`))
 	illegalReq.Header.Set("Content-Type", "application/json")
 	illegalReq.Header.Set("Idempotency-Key", "handler-illegal")
 	illegalRes := httptest.NewRecorder()
@@ -49,7 +49,7 @@ func TestRouterAppointmentLifecycleAndEnvelope(t *testing.T) {
 	eventsReq := httptest.NewRequest(http.MethodGet, "/api/v1/appointments/"+envelope.Data.ID+"/events", nil)
 	eventsRes := httptest.NewRecorder()
 	r.ServeHTTP(eventsRes, eventsReq)
-	if eventsRes.Code != http.StatusOK || !bytes.Contains(eventsRes.Body.Bytes(), []byte("已签到")) {
+	if eventsRes.Code != http.StatusOK || !bytes.Contains(eventsRes.Body.Bytes(), []byte("已立案")) {
 		t.Fatalf("events response = %d, body=%s", eventsRes.Code, eventsRes.Body.String())
 	}
 }

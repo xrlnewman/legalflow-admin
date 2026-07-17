@@ -4,22 +4,22 @@ import { createApiClient } from './api.js'
 const api = createApiClient()
 
 const demoAppointments = [
-  { id: 'AP-0716-082', patient: '林晓雨', department: '全科门诊', doctor: '林律师', scheduledAt: '2026-07-16T09:30:00+08:00', status: '候诊中' },
-  { id: 'AP-0716-081', patient: '沈明远', department: '皮肤科', doctor: '沈律师', scheduledAt: '2026-07-16T09:45:00+08:00', status: '已签到' },
-  { id: 'AP-0716-080', patient: '赵思涵', department: '康复理疗', doctor: '赵律师', scheduledAt: '2026-07-16T10:00:00+08:00', status: '已完成' },
-  { id: 'AP-0716-079', patient: '周子昂', department: '全科门诊', doctor: '林律师', scheduledAt: '2026-07-16T10:15:00+08:00', status: '待签到' },
-  { id: 'AP-0716-078', patient: '许安然', department: '营养咨询', doctor: '周律师', scheduledAt: '2026-07-16T10:30:00+08:00', status: '待签到' },
+  { id: 'LG-0716-082', patient: '案卷 C082 · 上海某公司', department: '合同纠纷', doctor: '林律师', scheduledAt: '2026-07-16T09:30:00+08:00', status: '待办理' },
+  { id: 'LG-0716-081', patient: '案卷 C081 · 王某', department: '劳动争议', doctor: '沈律师', scheduledAt: '2026-07-16T09:45:00+08:00', status: '已立案' },
+  { id: 'LG-0716-080', patient: '案卷 C080 · 星河科技', department: '知识产权', doctor: '赵律师', scheduledAt: '2026-07-16T10:00:00+08:00', status: '已结案' },
+  { id: 'LG-0716-079', patient: '案卷 C079 · 李某', department: '合同纠纷', doctor: '林律师', scheduledAt: '2026-07-16T10:15:00+08:00', status: '待立案' },
+  { id: 'LG-0716-078', patient: '案卷 C078 · 云杉贸易', department: '公司治理', doctor: '周律师', scheduledAt: '2026-07-16T10:30:00+08:00', status: '待立案' },
 ]
 
 const demoFollowups = [
-  { id: 'FW-0716-012', patient: '林晓雨', summary: '术后一周恢复提醒', dueAt: '今天 16:00', status: '待完成' },
-  { id: 'FW-0716-011', patient: '周子昂', summary: '用药依从性回访', dueAt: '今天 17:30', status: '待完成' },
-  { id: 'FW-0716-010', patient: '沈明远', summary: '皮肤复诊提醒', dueAt: '明天 09:30', status: '待完成' },
-  { id: 'FW-0715-009', patient: '赵思涵', summary: '康复训练记录', dueAt: '已完成', status: '已完成' },
+  { id: 'LG-0716-012', patient: '案卷 C082', summary: '证据清单与举证期限', dueAt: '今天 16:00', status: '待完成' },
+  { id: 'LG-0716-011', patient: '案卷 C081', summary: '庭审材料校对', dueAt: '今天 17:30', status: '待完成' },
+  { id: 'LG-0716-010', patient: '案卷 C080', summary: '合同合规意见归档', dueAt: '明天 09:30', status: '待完成' },
+  { id: 'LG-0715-009', patient: '案卷 C079', summary: '结案文书归档', dueAt: '已完成', status: '已完成' },
 ]
 
 const demoDashboard = { todayAppointments: 86, averageWaitMinutes: 12, completed: 58, checkedIn: 42, pendingFollowups: 12 }
-const statusColors = { 待签到: 'coral', 已签到: 'indigo', 候诊中: 'amber', 办理中: 'green', 已完成: 'green', 已取消: 'gray' }
+const statusColors = { 待立案: 'coral', 已立案: 'indigo', 待办理: 'amber', 办理中: 'green', 已结案: 'green', 已撤案: 'gray' }
 const nav = [
   ['overview', '运营总览', '⌂'],
   ['queue', '案件队列', '▤'],
@@ -51,7 +51,7 @@ function normalizeAppointment(item) {
     department: item.department || '待分诊',
     doctor: item.doctor || '待安排',
     scheduledAt: item.scheduledAt || '',
-    status: item.status || '待签到',
+    status: item.status || '待立案',
   }
 }
 
@@ -60,7 +60,7 @@ function normalizeFollowup(item) {
     id: item.id,
     patientId: item.patientId,
     patient: item.patient || '未命名当事人',
-    summary: item.summary || '健康合规任务',
+    summary: item.summary || '法务合规任务',
     dueAt: item.dueAt || '--',
     status: item.status || '待完成',
   }
@@ -77,9 +77,9 @@ function showToast(message) {
 }
 
 function appointmentAction(appointment) {
-  if (appointment.status === '待签到') return `<button class="text-action" data-action="checkin" data-appointment-id="${appointment.id}">签到</button>`
-  if (appointment.status === '已签到') return `<button class="text-action" data-action="status" data-next-status="候诊中" data-appointment-id="${appointment.id}">进入候诊</button>`
-  if (appointment.status === '候诊中') return `<button class="text-action" data-action="status" data-next-status="办理中" data-appointment-id="${appointment.id}">开始办理</button>`
+  if (appointment.status === '待立案') return `<button class="text-action" data-action="checkin" data-appointment-id="${appointment.id}">提交立案</button>`
+  if (appointment.status === '已立案') return `<button class="text-action" data-action="status" data-next-status="待办理" data-appointment-id="${appointment.id}">进入办理</button>`
+  if (appointment.status === '待办理') return `<button class="text-action" data-action="status" data-next-status="办理中" data-appointment-id="${appointment.id}">开始办理</button>`
   if (appointment.status === '办理中') return `<button class="text-action" data-action="status" data-next-status="已完成" data-appointment-id="${appointment.id}">完成办理</button>`
   return '<button class="text-action" data-toast="该案件已完成，无需重复操作">查看详情</button>'
 }
@@ -96,11 +96,11 @@ function render() {
 }
 
 function overview() {
-  return `<section class="metrics"><article class="metric dark"><span>今日案件</span><strong>${dashboard.todayAppointments}</strong><small>↗ 较昨日 +14.6%</small></article><article class="metric"><span>平均候诊</span><strong>${dashboard.averageWaitMinutes}<small> 分钟</small></strong><small class="good">较上周 -3 分钟</small></article><article class="metric"><span>今日完成</span><strong>${dashboard.completed}<small> 人次</small></strong><div class="progress"><i style="width:68%"></i></div></article><article class="metric warm"><span>待合规</span><strong>${dashboard.pendingFollowups}<small> 条</small></strong><small class="coral">今日需完成</small></article></section><section class="grid"><article class="panel calendar"><div class="panel-head"><div><h2>今日案件队列</h2><p>7 月 16 日 · 周四 · 共 ${dashboard.todayAppointments} 位当事人</p></div><button class="link" data-page="queue">查看队列 →</button></div><div class="timeline">${appointments.slice(0, 4).map((appointment) => `<div class="time-row"><span>${timeLabel(appointment.scheduledAt)}</span><i class="time-dot ${statusColors[appointment.status] || 'indigo'}"></i><div><strong>${appointment.patient}</strong><small>${appointment.department} · ${appointment.status}</small></div><b class="status ${statusColors[appointment.status] || 'indigo'}">${appointment.status}</b></div>`).join('')}</div></article><article class="panel"><div class="panel-head"><div><h2>科室办理负载</h2><p>当前时段排班利用率</p></div><button class="link" data-page="doctors">排班管理 →</button></div><div class="load-list">${[['全科门诊', '32 / 40', '80%', 'indigo'], ['皮肤科', '18 / 24', '75%', 'coral'], ['康复理疗', '12 / 18', '67%', 'green'], ['营养咨询', '8 / 12', '66%', 'amber']].map((item) => `<div class="load"><div><strong>${item[0]}</strong><span>${item[1]}</span></div><div class="load-bar"><i class="${item[3]}" style="width:${item[2]}"></i></div><b>${item[2]}</b></div>`).join('')}</div></article></section><section class="grid lower"><article class="panel"><div class="panel-head"><div><h2>合规完成趋势</h2><p>近 7 日任务完成率</p></div><span class="legend">本周平均 84%</span></div><div class="spark"><i style="height:38%"></i><i style="height:58%"></i><i style="height:46%"></i><i style="height:74%"></i><i style="height:66%"></i><i style="height:88%"></i><i class="today" style="height:80%"></i></div><div class="days"><span>周五</span><span>周六</span><span>周日</span><span>周一</span><span>周二</span><span>周三</span><span>今天</span></div></article><article class="panel tasks"><div class="panel-head"><div><h2>待办提醒</h2><p>需要运营人员跟进的事项</p></div></div><div class="task"><span class="task-icon coral">!</span><div><strong>3 位当事人需要改约</strong><small>案件队列 · 10 分钟前</small></div><button data-page="queue">处理</button></div><div class="task"><span class="task-icon amber">✓</span><div><strong>${dashboard.pendingFollowups} 条合规今日到期</strong><small>健康合规 · 32 分钟前</small></div><button data-page="followups">查看</button></div></article></section>`
+  return `<section class="metrics"><article class="metric dark"><span>今日案件</span><strong>${dashboard.todayAppointments}</strong><small>↗ 较昨日 +14.6%</small></article><article class="metric"><span>平均办理周期</span><strong>${dashboard.averageWaitMinutes}<small> 天</small></strong><small class="good">较上周 -3 天</small></article><article class="metric"><span>今日结案</span><strong>${dashboard.completed}<small> 件</small></strong><div class="progress"><i style="width:68%"></i></div></article><article class="metric warm"><span>待合规</span><strong>${dashboard.pendingFollowups}<small> 条</small></strong><small class="coral">今日需完成</small></article></section><section class="grid"><article class="panel calendar"><div class="panel-head"><div><h2>今日案件队列</h2><p>7 月 16 日 · 周四 · 共 ${dashboard.todayAppointments} 个案件</p></div><button class="link" data-page="queue">查看队列 →</button></div><div class="timeline">${appointments.slice(0, 4).map((appointment) => `<div class="time-row"><span>${timeLabel(appointment.scheduledAt)}</span><i class="time-dot ${statusColors[appointment.status] || 'indigo'}"></i><div><strong>${appointment.patient}</strong><small>${appointment.department} · ${appointment.status}</small></div><b class="status ${statusColors[appointment.status] || 'indigo'}">${appointment.status}</b></div>`).join('')}</div></article><article class="panel"><div class="panel-head"><div><h2>业务领域负载</h2><p>当前时段律师利用率</p></div><button class="link" data-page="doctors">排班管理 →</button></div><div class="load-list">${[['合同纠纷', '32 / 40', '80%', 'indigo'], ['劳动争议', '18 / 24', '75%', 'coral'], ['知识产权', '12 / 18', '67%', 'green'], ['公司治理', '8 / 12', '66%', 'amber']].map((item) => `<div class="load"><div><strong>${item[0]}</strong><span>${item[1]}</span></div><div class="load-bar"><i class="${item[3]}" style="width:${item[2]}"></i></div><b>${item[2]}</b></div>`).join('')}</div></article></section><section class="grid lower"><article class="panel"><div class="panel-head"><div><h2>合规完成趋势</h2><p>近 7 日任务完成率</p></div><span class="legend">本周平均 84%</span></div><div class="spark"><i style="height:38%"></i><i style="height:58%"></i><i style="height:46%"></i><i style="height:74%"></i><i style="height:66%"></i><i style="height:88%"></i><i class="today" style="height:80%"></i></div><div class="days"><span>周五</span><span>周六</span><span>周日</span><span>周一</span><span>周二</span><span>周三</span><span>今天</span></div></article><article class="panel tasks"><div class="panel-head"><div><h2>待办提醒</h2><p>需要运营人员跟进的事项</p></div></div><div class="task"><span class="task-icon coral">!</span><div><strong>3 个案件需要补充材料</strong><small>案件队列 · 10 分钟前</small></div><button data-page="queue">处理</button></div><div class="task"><span class="task-icon amber">✓</span><div><strong>${dashboard.pendingFollowups} 条合规今日到期</strong><small>法务合规 · 32 分钟前</small></div><button data-page="followups">查看</button></div></article></section>`
 }
 
 function queue() {
-  return `<section class="panel full"><div class="panel-head"><div><h2>案件队列</h2><p>${dataSource === 'API 数据' ? 'API 实时案件' : '20 条演示案件'} · 支持签到、候诊、办理和完成</p></div><span class="chip">今天　⌄</span></div><div class="table"><div class="th"><span>案件编号 / 当事人</span><span>科室</span><span>时间</span><span>状态</span><span>操作</span></div>${appointments.concat(dataSource === 'API 数据' ? [] : appointments.slice(0, 3)).map((appointment) => `<div class="tr"><span><strong>${appointment.id}</strong><small>${appointment.patient}</small></span><span>${appointment.department}</span><span>${timeLabel(appointment.scheduledAt)}</span><b class="status ${statusColors[appointment.status] || 'indigo'}">${appointment.status}</b><span>${appointmentAction(appointment)}</span></div>`).join('')}</div></section>`
+  return `<section class="panel full"><div class="panel-head"><div><h2>案件队列</h2><p>${dataSource === 'API 数据' ? 'API 实时案件' : '20 条演示案件'} · 支持立案、办理、结案和归档</p></div><span class="chip">今天　⌄</span></div><div class="table"><div class="th"><span>案件编号 / 当事人</span><span>业务领域</span><span>时间</span><span>状态</span><span>操作</span></div>${appointments.concat(dataSource === 'API 数据' ? [] : appointments.slice(0, 3)).map((appointment) => `<div class="tr"><span><strong>${appointment.id}</strong><small>${appointment.patient}</small></span><span>${appointment.department}</span><span>${timeLabel(appointment.scheduledAt)}</span><b class="status ${statusColors[appointment.status] || 'indigo'}">${appointment.status}</b><span>${appointmentAction(appointment)}</span></div>`).join('')}</div></section>`
 }
 
 function doctors() {
@@ -182,7 +182,7 @@ async function completeFollowup(button) {
 
 async function createAppointment() {
   try {
-    const created = await api.createAppointment({ patient: '移动端演示当事人', patientId: 'PT-MOBILE-DEMO', department: '全科门诊', doctor: '林律师', scheduledAt: new Date().toISOString() })
+    const created = await api.createAppointment({ patient: '移动端演示案件', patientId: 'LG-MOBILE-DEMO', department: '合同纠纷', doctor: '林律师', scheduledAt: new Date().toISOString() })
     appointments = [normalizeAppointment(created), ...appointments]
     dataSource = 'API 数据'
     showToast('案件已创建，可继续在移动端完成签到')
